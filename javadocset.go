@@ -9,6 +9,8 @@ import(
     "code.google.com/p/go-html-transform/css/selector"
     "path/filepath"
     "strings"
+    "database/sql"
+    _ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
@@ -28,12 +30,25 @@ func Build(javadocPath string, docsetPath string) error {
         return err
     }
 
+    resourcesDir := filepath.Join(docsetPath, "Contents", "Resources")
+
+    if err := os.MkdirAll(resourcesDir, 0755); err != nil {
+        return err
+    }
+
     indexFile, err := os.Open(filepath.Join(javadocPath, "index-all.html"))
     if err != nil {
         return err
     }
 
     defer indexFile.Close()
+
+    db, err := initDb(filepath.Join(resourcesDir, "docSet.dsidx"))
+    if err != nil {
+        return err
+    }
+
+    defer db.Close()
 
     tree, err := h5.New(indexFile)
     if err != nil {
@@ -54,21 +69,73 @@ func Build(javadocPath string, docsetPath string) error {
         text := nodeText(node, false)
         anchor := anchorSelector.Find(node)[0]
         itemType := ""
-        itemName := ""
 
         switch {
         case strings.Contains(text, "Class in"):
-            itemName = nodeText(anchor, true)
             itemType = "Class"
+        case strings.Contains(text, "Static method in"):
+            itemType = "Method"
+        case strings.Contains(text, "Static variable in"):
+            itemType = "Field"
+        case strings.Contains(text, "Constructor"):
+            itemType = "Constructor"
+        case strings.Contains(text, "Method in"):
+            itemType = "Method"
+        case strings.Contains(text, "Variable in"):
+            itemType = "Field"
+        case strings.Contains(text, "Interface in"):
+            itemType = "Interface"
+        case strings.Contains(text, "Exception in"):
+            itemType = "Exception"
+        case strings.Contains(text, "Error in"):
+            itemType = "Error"
+        case strings.Contains(text, "Enum in"):
+            itemType = "Enum"
+        case strings.Contains(text, "package"):
+            itemType = "Package"
+        case strings.Contains(text, "Annotation Type"):
+            itemType = "Notation"
         }
 
-        if itemType != "" {
-            fmt.Println(itemType, itemName)
+        tx, err := db.Begin()
+        if err != nil {
+            return err
         }
-        // fmt.Println(text, nodeAttr(anchor, "href"))
+
+        statement, err := tx.Prepare("insert into searchIndex(name, type, path) VALUES(?, ?, ?)")
+        if err != nil {
+            return err
+        }
+        defer statement.Close()
+
+        if itemType != "" {
+            itemName := nodeText(anchor, true)
+            _, err := statement.Exec(itemName, itemType, nodeAttr(anchor, "href"))
+            if err != nil {
+                return err
+            }
+            fmt.Println("Inserted!")
+        }
+
+        tx.Commit()
     }
 
     return nil
+}
+
+func initDb(path string) (*sql.DB, error) {
+    db, err := sql.Open("sqlite3", path)
+    if err != nil {
+        return nil, err
+    }
+
+    _, err = db.Exec("CREATE TABLE searchIndex(id INTEGER PRIMARY KEY, name TEXT, type TEXT, path TEXT)")
+    if err != nil {
+        db.Close()
+        return nil, err
+    }
+
+    return db, err
 }
 
 func nodeText(node *html.Node, deep bool) string {
