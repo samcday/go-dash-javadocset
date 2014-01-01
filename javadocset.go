@@ -1,7 +1,7 @@
 package javadocset
 
 import(
-    "fmt"
+    "io"
     "os"
     "errors"
     "code.google.com/p/go-html-transform/h5"
@@ -11,28 +11,56 @@ import(
     "strings"
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
+    "text/template"
 )
 
-func main() {
-    fmt.Println("w00t")
-}
+const plistTemplate = `
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+  <dict>
+    <key>CFBundleIdentifier</key>
+    <string>{{.Name}}</string>
+    <key>CFBundleName</key>
+    <string>{{.Name}}</string>
+    <key>DocSetPlatformFamily</key>
+    <string>{{.Name}}</string>
+    <key>dashIndexFilePath</key>
+    <string>overview-summary.html</string>
+    <key>DashDocSetFamily</key>
+    <string>java</string>
+    <key>isDashDocset</key>
+    <true/>
+  </dict>
+</plist>
+`
 
-func Build(javadocPath string, docsetPath string) error {
+func Build(javadocPath string, docsetRoot, docsetName string) error {
     if exists, err := pathExists(javadocPath); !exists {
         return errors.New("Javadoc path does not exist")
     } else if err != nil {
         return err
     }
 
-    if exists, err := pathExists(docsetPath); exists {
-        return errors.New("Docset output path should not exist")
+    if exists, err := pathExists(docsetRoot); !exists {
+        return errors.New("Docset root path does not exist")
     } else if err != nil {
         return err
     }
 
-    resourcesDir := filepath.Join(docsetPath, "Contents", "Resources")
+    docsetPath := filepath.Join(docsetRoot, docsetName + ".docset")
+    contentsPath := filepath.Join(docsetPath, "Contents")
+    resourcesDir := filepath.Join(contentsPath, "Resources")
+    documentsDir := filepath.Join(resourcesDir, "Documents")
+    if err := os.MkdirAll(documentsDir, 0755); err != nil {
+        return err
+    }
 
-    if err := os.MkdirAll(resourcesDir, 0755); err != nil {
+    if err := copyPath(javadocPath, documentsDir); err != nil {
+        return err
+    }
+
+    plistPath := filepath.Join(contentsPath, "Info.plist")
+    if err := writePlist(plistPath, docsetName); err != nil {
         return err
     }
 
@@ -114,7 +142,6 @@ func Build(javadocPath string, docsetPath string) error {
             if err != nil {
                 return err
             }
-            fmt.Println("Inserted!")
         }
 
         tx.Commit()
@@ -136,6 +163,25 @@ func initDb(path string) (*sql.DB, error) {
     }
 
     return db, err
+}
+
+func writePlist(path, docsetName string) error {
+    file, err := os.Create(path)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+
+    tmpl, err := template.New("plist").Parse(plistTemplate)
+    if err != nil {
+        return err
+    }
+
+    tmplData := map[string]string{
+        "Name": docsetName,
+    }
+
+    return tmpl.Execute(file, tmplData)
 }
 
 func nodeText(node *html.Node, deep bool) string {
@@ -172,3 +218,36 @@ func pathExists(path string) (bool, error) {
     return true, nil
 }
 
+func copyPath(src, dest string) error {
+    src = filepath.Clean(src) + "/"
+    return filepath.Walk(src, func (path string, info os.FileInfo, err error) error {
+        srcRel, _ := filepath.Rel(src, path)
+        destPath := filepath.Join(dest, srcRel)
+
+        if info.IsDir() {
+            if err := os.Mkdir(destPath, info.Mode()); err != nil && !os.IsExist(err) {
+                return err
+            }
+        } else {
+            srcFile, err := os.Open(path)
+            if err != nil {
+                return err
+            }
+            defer srcFile.Close()
+
+            destFile, err := os.OpenFile(destPath, os.O_WRONLY | os.O_CREATE, info.Mode())
+            if err != nil {
+                return err
+            }
+            
+            if _, err := io.Copy(destFile, srcFile); err != nil {
+                destFile.Close()
+                return err
+            }
+
+            return destFile.Close()
+        }
+
+        return nil
+    })
+}
