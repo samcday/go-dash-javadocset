@@ -10,7 +10,7 @@ import(
     "path/filepath"
     "strings"
     "database/sql"
-    _ "github.com/mattn/go-sqlite3"
+    _ "github.com/mattn/go-sqlite3" // Included for sqlite3 driver support
     "text/template"
 )
 
@@ -34,15 +34,17 @@ const plistTemplate = `
 </plist>
 `
 
+// Build will construct a Java Docset for Dash, using the Javadoc contained in
+// the javadocPath provided.
 func Build(javadocPath string, docsetRoot, docsetName string) error {
     if exists, err := pathExists(javadocPath); !exists {
-        return errors.New("Javadoc path does not exist")
+        return errors.New("javadoc path does not exist")
     } else if err != nil {
         return err
     }
 
     if exists, err := pathExists(docsetRoot); !exists {
-        return errors.New("Docset root path does not exist")
+        return errors.New("docset root path does not exist")
     } else if err != nil {
         return err
     }
@@ -211,9 +213,9 @@ func pathExists(path string) (bool, error) {
     if _, err := os.Stat(path); err != nil {
         if(os.IsNotExist(err)) {
             return false, nil
-        } else {
-            return false, err
         }
+
+        return false, err
     }
     return true, nil
 }
