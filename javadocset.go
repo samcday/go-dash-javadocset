@@ -84,7 +84,7 @@ func Build(javadocPath string, docsetRoot, docsetName string) error {
 		return err
 	}
 
-	itemSelector, err := selector.Selector(".contentContainer dl dt")
+	itemSelector, err := selector.Selector("dl dt")
 	if err != nil {
 		return err
 	}
