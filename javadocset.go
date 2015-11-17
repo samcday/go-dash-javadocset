@@ -3,7 +3,7 @@ package javadocset
 import (
 	"code.google.com/p/go-html-transform/css/selector"
 	"code.google.com/p/go-html-transform/h5"
-	"code.google.com/p/go.net/html"
+	"golang.org/x/net/html"
 	"database/sql"
 	"errors"
 	_ "github.com/mattn/go-sqlite3" // Included for sqlite3 driver support
